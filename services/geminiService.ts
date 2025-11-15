@@ -1,20 +1,40 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
 
 const model = "gemini-2.5-flash-preview-tts";
 
-export async function generateSpeech(text: string, voice: string, apiKey: string): Promise<string | null> {
-  if (!apiKey) {
-    throw new Error("API Key is required to generate speech.");
-  }
+/**
+ * Converts the input text into a valid SSML string.
+ * It replaces custom pause syntax like [pause:1.5s] with SSML <break> tags
+ * and wraps the entire text in <speak> tags.
+ * @param text The input text from the user.
+ * @returns A string formatted as SSML.
+ */
+function convertToSSML(text: string): string {
+  // Regex to find [pause:NUMBERs] or [break:NUMBERs]
+  const pauseRegex = /\[(pause|break):(\d*\.?\d+)s\]/gi;
   
+  const textWithBreaks = text.replace(pauseRegex, (_match, _type, seconds) => {
+    return `<break time="${seconds}s"/>`;
+  });
+
+  // Wrap the entire content in <speak> tags for SSML processing
+  return `<speak>${textWithBreaks}</speak>`;
+}
+
+
+export async function generateSpeech(apiKey: string, text: string, voice: string): Promise<string | null> {
+  if (!apiKey) {
+    throw new Error("Gemini API Key is required.");
+  }
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    const prompt = `Say cheerfully: ${text}`;
+    const ssmlText = convertToSSML(text);
 
     const response = await ai.models.generateContent({
       model: model,
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: [{ text: ssmlText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
@@ -34,9 +54,9 @@ export async function generateSpeech(text: string, voice: string, apiKey: string
     return base64Audio;
   } catch (error) {
     console.error("Error generating speech with Gemini API:", error);
-    if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('permission'))) {
-        throw new Error("The provided API Key is not valid. Please check it and try again.");
+    if (error instanceof Error && /API key not valid/i.test(error.message)) {
+        throw new Error("Invalid Gemini API Key. Please check your key and try again.");
     }
-    throw new Error("Failed to communicate with the Gemini API. Please check your API key and network connection.");
+    throw new Error("Failed to generate speech. Please check your API key and input, then try again.");
   }
 }
